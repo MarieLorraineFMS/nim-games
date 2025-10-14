@@ -84,7 +84,6 @@ def ask_choice(prompt: str, choices: Iterable[str]) -> str | None:
     Returns:
         str: lowered value
     """
-
     allowed_map: Dict[str, str] = {}
     for choice in choices:
         allowed_map[choice.lower()] = choice
