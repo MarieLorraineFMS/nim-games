@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Jeux  de Nim (variante simple et de Marienbad)
+Jeux de Nim (variante simple et de Marienbad)
 """
 
 from typing import Tuple, Optional
@@ -79,7 +79,7 @@ def resolve_after_move(
 
 
 def ask_replay() -> bool:
-    """english: ask the user if they want to play another game
+    """Ask the user if they want to play another game
 
     Returns:
         bool
@@ -204,7 +204,7 @@ def bot_play(
     if human_started:
         # Requires a human move first to know k
         if last_human_take is None:
-            # Safety fallback; should not happen if called after human turn
+            # Should not happen if called after human turn
             return min(1, remaining)
         return bot_take_when_human_starts(last_human_take, remaining)
     else:
@@ -303,7 +303,7 @@ def run_pve_game(human: str, bot: str, human_starts: bool) -> Tuple[str, str]:
         remaining = apply_move(remaining, take)
         print(f"Allumettes restantes: {remaining}")
 
-        # english: central end-of-turn resolution (no duplication)
+        # End of turn resolution
         outcome = resolve_after_move(current_player, other_player, remaining)
         if outcome:
             return outcome
