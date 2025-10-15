@@ -13,19 +13,7 @@ from utils import ask_choice, ask_int
 INITIAL_MATCHES: int = 21
 MIN_TAKE: int = 1
 MAX_TAKE: int = 4
-
-
-def is_game_over(remaining: int) -> bool:
-    """Game ends when there's only one match left
-
-    Args (int): remaining number of matches left
-
-    Returns:
-        bool
-
-    """
-
-    return remaining <= 0
+MARIENBAD_STACKS_INIT: list[int] = [1, 3, 5, 7]
 
 
 def apply_move(remaining: int, taken: int) -> int:
@@ -40,7 +28,7 @@ def apply_move(remaining: int, taken: int) -> int:
     """
     if taken < MIN_TAKE or taken > MAX_TAKE:
         raise ValueError(
-            f"Prise invalide : {taken}. Le nombre d'allumette à prendre doit être compris entre {MIN_TAKE} et {MAX_TAKE})."
+            f"Prise invalide : {taken}. Le nombre d'allumettes à prendre doit être compris entre {MIN_TAKE} et {MAX_TAKE}."
         )
     if taken > remaining:
         raise ValueError(
@@ -54,7 +42,7 @@ def resolve_after_move(
 ) -> Optional[Tuple[str, str]]:
     """End of turn resolver
     - current took the last one → current loses
-    - other is forced to take the last one → other loses now
+    - other is forced to take the last one → other loses before playing
     - else → game continues
 
     Args:
@@ -63,29 +51,70 @@ def resolve_after_move(
         remaining (int): remaining number of matches left
 
     Returns:
-        Optional[Tuple[str, str]]:
+        Optional[Tuple[str, str]]
     """
     if remaining <= 0:
         print(f"\n{current} a pris la dernière allumette. {current} a perdu 😢")
         print(f"🏆 {other} gagne WOOT GG !")
-        return other, current
+        return other, current  # TODO : refacto unused
     if remaining == 1:
         print(
             f"\nIl ne reste qu'une allumette. {other} est obligé de la prendre → {other} a perdu 😢"
         )
         print(f"🏆 {current} gagne WOOT GG !")
-        return current, other
+        return current, other  # TODO : refacto unused
     return None
 
 
 def ask_replay() -> bool:
-    """Ask the user if they want to play another game
+    """Ask player if they/he wants to play another game
 
     Returns:
         bool
     """
     answer: str = ask_choice("Rejouer ? (oui/non) : ", ["oui", "non"])
     return answer == "oui"
+
+
+def total_remaining(stacks: list[int]) -> int:
+    """Total matches left across all stacks
+
+    Args:
+        stacks (list[int]): remaining matches separate by stack
+
+    Returns:
+        int: total remaining
+    """
+    return sum(stacks)
+
+
+def render_stacks(stacks: list[int]) -> None:
+    """Print stacks state
+
+    Args:
+        stacks (list[int]): remaining matches separate by stack
+
+    Returns:
+        None:
+    """
+    print("Piles :", " | ".join(f"{i+1}:{n}" for i, n in enumerate(stacks)))
+
+
+def apply_stack_move(stacks: list[int], stack_index: int, taken: int) -> None:
+    """Removing taken matches from stack by stack_index
+    Args:
+        stacks (list[int]): remaining matches separate by stack
+        stack_index (int): stack index
+        taken (int): taken number of matches
+
+    Returns:
+        None
+    """
+    if stack_index < 0 or stack_index >= len(stacks):
+        raise ValueError("Numéro de pile invalide.")
+    if taken < 1 or taken > stacks[stack_index]:
+        raise ValueError("Prise invalide sur cette pile.")
+    stacks[stack_index] -= taken
 
 
 # ----------------------- INTERACTIONS -----------------------
@@ -118,6 +147,16 @@ def choose_game_mode() -> str:
     )
     print(f"Game mode: {mode.upper()}")
     return mode
+
+
+def choose_variant() -> str:
+    """Choose Nim variant"""
+    variant: str = ask_choice(
+        "Variante : Classique ou Marienbad ? ", ["Classic", "Marienbad"]
+    )
+    print(f"Variante : {variant.upper()}")
+
+    return variant
 
 
 def choose_starter(p1: str, p2: str) -> str:
@@ -204,7 +243,7 @@ def bot_play(
     if human_started:
         # Requires a human move first to know k
         if last_human_take is None:
-            # Should not happen if called after human turn
+            # Safety fallback; should not happen if called after human turn
             return min(1, remaining)
         return bot_take_when_human_starts(last_human_take, remaining)
     else:
@@ -213,6 +252,33 @@ def bot_play(
             return bot_first_move_when_bot_starts(remaining)
         # After human played once, resume "5-k" strategy
         return bot_take_when_human_starts(last_human_take, remaining)
+
+
+def bot_stack_play(stacks: list[int]) -> tuple[int, int]:
+    """
+    Bot for Marienbad
+
+    Args:
+        stacks (list[int]): remaining matches separate by stack
+
+    Returns:
+        tuple[int, int]
+    """
+    total: int = total_remaining(stacks)
+    if 2 <= total <= 5:
+        need: int = total - 1
+        # Find a stack with enough matches to remove 'need'
+        for i, n in enumerate(stacks):
+            if n >= need:
+                return i, need
+        # Fallback take 1 from any non-empty stack
+        for i, n in enumerate(stacks):
+            if n > 0:
+                return i, 1
+
+    # Midgame — reduce the largest stack by 1
+    max_i: int = max(range(len(stacks)), key=lambda j: stacks[j])
+    return max_i, 1
 
 
 # ----------------------- GAME LOOP -----------------------
@@ -229,7 +295,7 @@ def human_turn(name: str, remaining: int) -> int:
         int: player take
     """
     prompt: str = (
-        f"{name}, combien d'allumettes prends-tu entre {MIN_TAKE} et {MAX_TAKE} ? Il en reste : {remaining}) : "
+        f"{name}, combien d'allumettes prends-tu entre {MIN_TAKE} et {MAX_TAKE} ? Il en reste : {remaining} ? "
     )
     while True:
         take: int = ask_int(prompt, min_value=MIN_TAKE, max_value=MAX_TAKE)
@@ -240,10 +306,33 @@ def human_turn(name: str, remaining: int) -> int:
         )
 
 
+def human_stack_turn(name: str, stacks: list[int]) -> tuple[int, int]:
+    """Ask human which stack and how many matches to take in this stack"""
+    render_stacks(stacks)
+    non_empty_indices: list[int] = [i for i, n in enumerate(stacks) if n > 0]
+
+    while True:
+        stack_choice: int = ask_int(
+            f"{name}, choisis une pile d'allumettes {non_empty_indices[0]+1} à {non_empty_indices[-1]+1} : ",
+            min_value=1,
+            max_value=len(stacks),
+        )
+        idx0: int = stack_choice - 1
+        if idx0 in non_empty_indices:
+            break
+        print("Cette pile est vide, choisis une autre pile.")
+    max_take: int = stacks[idx0]
+    taken: int = ask_int(
+        f"{name}, combien prends-tu d'allumettes dans la pile {stack_choice} (1 à {max_take}) ? ",
+        min_value=1,
+        max_value=max_take,
+    )
+    return idx0, taken
+
+
 def run_pvp_game(p1: str, p2: str, starter: str) -> Tuple[str, str]:
     """
     Run a PVP match &  returns winner and loser
-    (loser is the one who takes the last match)
 
     Args:
         p1 (str) : first player
@@ -262,7 +351,6 @@ def run_pvp_game(p1: str, p2: str, starter: str) -> Tuple[str, str]:
     )
 
     while True:
-        # current human player plays
         take: int = human_turn(current_player, remaining)
         remaining = apply_move(remaining, take)
         print(
@@ -279,6 +367,14 @@ def run_pvp_game(p1: str, p2: str, starter: str) -> Tuple[str, str]:
 def run_pve_game(human: str, bot: str, human_starts: bool) -> Tuple[str, str]:
     """
     Run a PVE match & returns winner and loser
+
+    Args:
+        human (str) : human pseudo
+        bot (str) : bot name
+        human_starts (bool)
+
+    Returns:
+        Tuple[str, str]: loser
     """
     remaining: int = INITIAL_MATCHES
     current_player: str = human if human_starts else bot
@@ -286,7 +382,7 @@ def run_pve_game(human: str, bot: str, human_starts: bool) -> Tuple[str, str]:
     last_human_take: Optional[int] = None  # Track last human move for "5 - k" strategy
 
     print(
-        f"\nIl y a {remaining} allumettes. {current_player} commence. (Rappel: celui qui prend la DERNIÈRE perd)"
+        f"\nIl y a {remaining} allumettes. {current_player} commence. (Rappel: celui qui prend la dernière allumette perd)"
     )
 
     while True:
@@ -301,9 +397,10 @@ def run_pve_game(human: str, bot: str, human_starts: bool) -> Tuple[str, str]:
             print(f"{bot} prend {take}.")
 
         remaining = apply_move(remaining, take)
-        print(f"Allumettes restantes: {remaining}")
+        print(
+            f"Allumette{"s" if remaining>1 else ""} restante{"s" if remaining>1 else ""} : {remaining}"
+        )
 
-        # End of turn resolution
         outcome = resolve_after_move(current_player, other_player, remaining)
         if outcome:
             return outcome
@@ -312,27 +409,107 @@ def run_pve_game(human: str, bot: str, human_starts: bool) -> Tuple[str, str]:
         current_player, other_player = other_player, current_player
 
 
+def run_marienbad_pvp_game(p1: str, p2: str, starter: str) -> Tuple[str, str]:
+    """Run PVP Marienbad & returns winner and loser
+
+    Args:
+        p1 (str) : first player
+        p2 (str) : second player
+        starter(str) : starter name
+
+    Returns:
+        Tuple[str, str]:
+    """
+    stacks: list[int] = MARIENBAD_STACKS_INIT.copy()
+    current: str = starter
+    other: str = p2 if current == p1 else p1
+    print(f"\nMarienbad — piles initiales {MARIENBAD_STACKS_INIT}. {current} commence.")
+    while True:
+        idx, take = human_stack_turn(current, stacks)
+        apply_stack_move(stacks, idx, take)
+        remaining: int = total_remaining(stacks)
+        print(
+            f"{current} prend {take} allumette{"s" if take>1 else ""} dans la pile n° : {idx+1}. Restant total : {remaining}"
+        )
+        outcome = resolve_after_move(current, other, remaining)
+        if outcome:
+            return outcome
+        current, other = other, current
+
+
+def run_marienbad_pve_game(human: str, bot: str, human_starts: bool) -> Tuple[str, str]:
+    """PVE Marienbad & returns winner and loser
+
+    Args:
+        human (str) : human pseudo
+        bot (str) : bot pseudo
+        human_starts (bool)
+
+    Returns:
+        Tuple[str, str]: loser
+    """
+    stacks: list[int] = MARIENBAD_STACKS_INIT.copy()
+    current: str = human if human_starts else bot
+    other: str = bot if current == human else human
+    print(f"\nMarienbad — piles initiales {MARIENBAD_STACKS_INIT}. {current} commence.")
+    while True:
+        if current == human:
+            idx, take = human_stack_turn(human, stacks)
+        else:
+            idx, take = bot_stack_play(stacks)
+            print(
+                f"{bot} joue : Pile {idx+1}, prend {take} allumette{"s" if take>1 else ""}."
+            )
+        apply_stack_move(stacks, idx, take)
+        remaining: int = total_remaining(stacks)
+        print(f"Total restant : {remaining}")
+        outcome = resolve_after_move(current, other, remaining)
+        if outcome:
+            return outcome
+        current, other = other, current
+
+
 # ----------------------- Run -----------------------
 
 
 def main() -> None:
-    print("=== Jeu de Nim (21 allumettes) ===")
+    print("=== Jeu de Nim ===")
     while True:  # Replay loop
         mode: str = choose_game_mode()
-
-        if mode.upper() == "PVP":
-            p1: str = ask_player_name("joueur 1")
-            p2: str = ask_player_name("joueur 2")
-            starter: str = choose_starter(p1, p2)
-            run_pvp_game(p1, p2, starter)
+        variant: str = choose_variant()
+        if variant.strip().casefold() == "Classic":
+            if mode.strip().casefold() == "PVP":
+                p1: str = ask_player_name("joueur 1")
+                p2: str = ask_player_name("joueur 2")
+                starter: str = choose_starter(p1, p2)
+                run_pvp_game(p1, p2, starter)
+            else:
+                human: str = ask_player_name("joueur").title()
+                bot: str = "Machine"
+                who_starts: str = ask_choice(
+                    f"Qui commence {human} ou {bot} ? ", [human, bot]
+                )
+                human_starts: bool = (
+                    who_starts.strip().casefold() == human.strip().casefold()
+                )  # Case insensitive compare
+                run_pve_game(human, bot, human_starts)
         else:
-            human: str = ask_player_name("joueur").title()
-            bot: str = "Machine"
-            who_starts: str = ask_choice(
-                f"Qui commence {human} ou {bot} ? ", [human, bot]
-            )
-            human_starts: bool = who_starts.title() == human
-            run_pve_game(human, bot, human_starts)
+            if mode.strip().casefold() == "PVP":
+                p1: str = ask_player_name("joueur 1")
+                p2: str = ask_player_name("joueur 2")
+                starter: str = choose_starter(p1, p2)
+                run_marienbad_pvp_game(p1, p2, starter)
+            else:
+                human: str = ask_player_name("joueur").title()
+                bot: str = "Machine"
+                who_starts: str = ask_choice(
+                    f"Qui commence {human} ou {bot} ? ", [human, bot]
+                )
+                human_starts: bool = (
+                    who_starts.strip().casefold() == human.strip().casefold()
+                )  # Case insensitive compare
+
+                run_marienbad_pve_game(human, bot, human_starts)
 
         # Ask for replay at the end of the game
         if not ask_replay():
